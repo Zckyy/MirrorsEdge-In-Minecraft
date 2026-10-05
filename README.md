@@ -77,6 +77,7 @@ On top of the original mod:
 | **Crash fix** | Changing resource or shader packs mid-game no longer crashes once her maps are loaded. |
 | **Melee hits mobs** | Her punches, jump kicks, slide kicks and wallrun kicks hurt and knock back Minecraft mobs, with Mirror's Edge's own target choice, hit tests and damage (scaled so a mob takes as many blows as a cop would). Kills count as yours: loot, XP, advancements. |
 | **Footstep and hand surfaces** | Her steps sound like what she's on: concrete, wood, metal, grating, airduct (copper grates), ladders, pipes (chains, rods), chain-link (bars), glass, cardboard (wool, hay) and water, from her feet on the floor or the wall she's running along and her hands on what she holds. |
+| **Controls screen** | A "Faith Runner controls" button on the pause menu: every key as it's bound now, tips for her harder moves, and the blocks she uses, with a shortcut to Minecraft's key bindings. |
 | **Distant Horizons** | `-PwithDH` adds Distant Horizons to the dev and test runs (alongside `-PwithIris`). |
 | **More tests** | Client game tests for each of the above, a close-up suite for judging her body under shaders, and options to pick suites, shader settings and a resource pack. `./gradlew deploy` works again. |
 
@@ -180,6 +181,7 @@ The look in the gallery:
 | **R** | Melee: punches, jump kick, slide kick, wallrun kick; barges and kicks doors |
 
 F8, Z and R can be rebound in Controls. WASD, Space and Shift are Minecraft's own bindings.
+In game, **Faith Runner controls** on the pause menu lists them all, as they're bound now.
 
 Tips:
 - **Sprint builds up** like the game's: 4 m/s at 0.4 s up to 7.2 m/s at 7 s. Whipping the view

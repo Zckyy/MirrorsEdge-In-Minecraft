@@ -12,7 +12,8 @@
 			"dev.faithrunner.test.FaithFixturesTest",
 			"dev.faithrunner.test.FaithShowcaseTest",
 			"dev.faithrunner.test.FaithMeleeTest",
-			"dev.faithrunner.test.FaithSurfacesTest"
+			"dev.faithrunner.test.FaithSurfacesTest",
+			"dev.faithrunner.test.FaithControlsTest"
 		]
 	},
 	"depends": {

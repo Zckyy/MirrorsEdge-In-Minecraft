@@ -28,6 +28,7 @@ public class FaithRunner implements ClientModInitializer {
 		KeyMappingHelper.registerKeyMapping(TURN);
 		KeyMappingHelper.registerKeyMapping(MELEE);
 		Faith.preload();
+		FaithControlsScreen.register();
 		IrisCompat.registerPbr();
 		// Development check: apply every mixin now (a broken one otherwise only shows on joining a world).
 		if (Boolean.getBoolean("faithrunner.audit")) {
