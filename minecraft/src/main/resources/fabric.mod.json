@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "faithrunner",
+	"version": "${version}",
+	"name": "Faith Runner",
+	"description": "Mirror's Edge's movement, camera and animation on the player.",
+	"authors": ["Tanner"],
+	"license": "All-Rights-Reserved",
+	"icon": "assets/faithrunner/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.faithrunner.FaithRunner"]
+	},
+	"mixins": ["faithrunner.mixins.json"],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

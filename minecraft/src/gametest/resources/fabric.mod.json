@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "faithrunner-test",
+	"version": "1.0.0",
+	"name": "Faith Runner tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"dev.faithrunner.test.FaithBlocksTest"
+		]
+	},
+	"depends": {
+		"faithrunner": "*"
+	}
+}

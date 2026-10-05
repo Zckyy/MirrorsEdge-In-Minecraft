@@ -1,0 +1,20 @@
+{
+	"required": true,
+	"package": "dev.faithrunner.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"CameraMixin",
+		"EntityTurnMixin",
+		"LocalPlayerMoveMixin",
+		"ServerMovementMixin",
+		"ServerPlayerMixin",
+		"PlayerFallMixin",
+		"GameRendererMixin",
+		"HandsRendererMixin",
+		"IrisShadowMixin",
+		"IrisHandFovMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

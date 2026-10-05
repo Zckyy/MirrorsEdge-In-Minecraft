@@ -1,0 +1,6 @@
+/target/
+*.log
+minecraft/build/
+minecraft/.gradle/
+minecraft/run/
+*.dll
