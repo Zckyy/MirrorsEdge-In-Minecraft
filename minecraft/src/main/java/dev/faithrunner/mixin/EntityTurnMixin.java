@@ -14,7 +14,7 @@ import net.minecraft.world.entity.Entity;
 public abstract class EntityTurnMixin {
 	@Inject(method = "turn", at = @At("HEAD"), cancellable = true)
 	private void faithrunner$look(double xo, double yo, CallbackInfo ci) {
-		if (Faith.active && (Object) this instanceof LocalPlayer) {
+		if (Faith.driving() && (Object) this instanceof LocalPlayer) {
 			Faith.addLook(xo, yo);
 			ci.cancel();
 		}

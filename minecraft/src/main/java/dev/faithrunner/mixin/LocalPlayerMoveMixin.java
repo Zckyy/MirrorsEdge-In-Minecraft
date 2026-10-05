@@ -15,7 +15,7 @@ import net.minecraft.world.phys.Vec3;
 public abstract class LocalPlayerMoveMixin {
 	@Inject(method = "move", at = @At("HEAD"), cancellable = true)
 	private void faithrunner$move(MoverType moverType, Vec3 delta, CallbackInfo ci) {
-		if (Faith.active && (moverType == MoverType.SELF || moverType == MoverType.PLAYER)) {
+		if (Faith.driving() && (moverType == MoverType.SELF || moverType == MoverType.PLAYER)) {
 			ci.cancel();
 		}
 	}

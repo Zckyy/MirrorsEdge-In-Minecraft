@@ -28,6 +28,7 @@ public class FaithRunner implements ClientModInitializer {
 		KeyMappingHelper.registerKeyMapping(TURN);
 		KeyMappingHelper.registerKeyMapping(MELEE);
 		Faith.preload();
+		IrisCompat.registerPbr();
 		// Development check: apply every mixin now (a broken one otherwise only shows on joining a world).
 		if (Boolean.getBoolean("faithrunner.audit")) {
 			org.spongepowered.asm.mixin.MixinEnvironment.getCurrentEnvironment().audit();
@@ -45,6 +46,7 @@ public class FaithRunner implements ClientModInitializer {
 			}
 			if (mc.player == null && Faith.active) {
 				Faith.active = false;
+				Faith.handedOff = false;
 			}
 			WorldGather.tick(mc);
 		});

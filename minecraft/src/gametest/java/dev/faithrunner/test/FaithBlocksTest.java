@@ -41,7 +41,12 @@ public class FaithBlocksTest implements FabricClientGameTest {
 				jumped = true;
 			}
 			context.waitTick();
-			states.add(context.computeOnClient(mc -> FaithTesting.state()));
+			String state = context.computeOnClient(mc -> FaithTesting.state());
+			// Her hands up in view (on the bar): what the body looks like close up.
+			if (states.add(state) && state.equals("Swing")) {
+				context.waitTicks(4);
+				context.takeScreenshot(label + "-swing");
+			}
 		}
 		context.getInput().releaseKey(o -> o.keyUp);
 		context.waitTicks(10);
@@ -50,6 +55,9 @@ public class FaithBlocksTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
+		if (TestFilter.skip(FaithBlocksTest.class)) {
+			return;
+		}
 		this.context = context;
 		try (TestSingleplayerContext world = context.worldBuilder().create()) {
 			this.world = world;

@@ -13,11 +13,16 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChainBlock;
+import net.minecraft.world.level.block.DirectionalBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceBlock;
 import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.RodBlock;
+import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.VineBlock;
+import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.WeatheringCopperBarsBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -34,7 +39,13 @@ import net.minecraft.world.phys.AABB;
  * - closed wooden doors as doors she barges or kicks open (and Minecraft's door opens with them);
  * - hay bales and slime blocks as soft landings;
  * - iron bars and fences with two clear blocks under them, offered as swing poles (faith_ffi
- *   decides, as it does with Skyrim's bars).
+ *   decides, as it does with Skyrim's bars);
+ * - fences and walls as high as they look (a block, not Minecraft's block and a half that stops
+ *   jumping): she vaults them as railings, and a straight run of them with a drop both sides
+ *   (along the top of a one-block-wide wall) is a balance beam;
+ * - upright chains, end rods and lightning rods three or more high against a wall as drainpipes;
+ * - horizontal chains stepping down along a line as a zipline cable (offered from end to end;
+ *   faith_ffi checks its slope and length), left out of her collision so she can hang under it.
  */
 final class WorldGather {
 	/** How far round her it reads (blocks), and how often (ticks), or when she's moved this far. */
@@ -52,13 +63,23 @@ final class WorldGather {
 	/** A fixture for faith_set_host_fixtures (FaithHostFixture). */
 	record HostFixture(int kind, int flags, float[] a, float[] b, float[] n, float top) {}
 
-	/** A candidate for faith_set_fixture_candidates (FaithFixtureCandidate). */
-	record Candidate(float[] a, float[] b, float thickness) {}
+	/**
+	 * A candidate for faith_set_fixture_candidates (FaithFixtureCandidate): a capsule's centre
+	 * line and radius, or (not `capsule`) the middle of a box's top and half its width.
+	 */
+	record Candidate(float[] a, float[] b, float thickness, boolean capsule) {}
+
+	/** A zipline's cable needs this many chains at least (faith_ffi wants 6 m of it). */
+	static final int ZIPLINE_MIN = 6;
+	/** A drainpipe, this many blocks high at least (faith_ffi wants 2.5 m). */
+	static final int PIPE_MIN = 3;
+	/** A balance beam, this many blocks long at least (faith_ffi wants 2.5 m). */
+	static final int BEAM_MIN = 3;
 
 	private WorldGather() {}
 
 	static void tick(Minecraft mc) {
-		if (!Faith.active || mc.player == null) {
+		if (!Faith.driving() || mc.player == null) {
 			return;
 		}
 		boolean moved = lastCentre == null || lastCentre.distToCenterSqr(mc.player.position()) > MOVED * MOVED;
@@ -83,6 +104,25 @@ final class WorldGather {
 			&& level.getBlockState(p.below(2)).getCollisionShape(level, p.below(2)).isEmpty();
 	}
 
+	/** An upright chain, end rod or lightning rod: a piece of drainpipe. */
+	private static boolean pipeBlock(BlockState s) {
+		Block b = s.getBlock();
+		if (b instanceof ChainBlock) {
+			return s.getValue(RotatedPillarBlock.AXIS) == Direction.Axis.Y;
+		}
+		return b instanceof RodBlock && s.getValue(DirectionalBlock.FACING).getAxis() == Direction.Axis.Y;
+	}
+
+	/** A chain lying along `axis` (X or Z): a piece of zipline cable. */
+	private static boolean cableBlock(BlockState s, Direction.Axis axis) {
+		return s.getBlock() instanceof ChainBlock && s.getValue(RotatedPillarBlock.AXIS) == axis;
+	}
+
+	/** A fence or wall low enough to stand on (not a swing pole): a piece of balance beam. */
+	private static boolean beamBlock(ClientLevel level, BlockPos p, BlockState s) {
+		return s.getBlock() instanceof WallBlock || (s.getBlock() instanceof FenceBlock && !highPole(level, p, s));
+	}
+
 	private static boolean doorOpenToHer(BlockPos lower) {
 		Long t = openedDoors.get(lower);
 		return t != null && System.currentTimeMillis() - t < DOOR_GRACE;
@@ -103,6 +143,12 @@ final class WorldGather {
 		doors.clear();
 		Set<Long> laddersDone = new HashSet<>();
 		Set<Long> polesDone = new HashSet<>();
+		Set<Long> pipesDone = new HashSet<>();
+		// The blocks of the drainpipes found: no collision, as the game's (she holds on round them).
+		Set<Long> pipes = new HashSet<>();
+		Set<Long> beamsDone = new HashSet<>();
+		// Ziplines first: their chains are left out of her collision.
+		Set<Long> cables = ziplines(level, c, candidates);
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 		BlockPos.MutableBlockPos n = new BlockPos.MutableBlockPos();
 		for (int x = c.getX() - RADIUS; x <= c.getX() + RADIUS; x++) {
@@ -114,6 +160,9 @@ final class WorldGather {
 						continue;
 					}
 					Block block = s.getBlock();
+					if (cables.contains(pos.asLong())) {
+						continue;
+					}
 					// Doors: a closed wooden one is her door (solid until she bursts it).
 					if (block instanceof DoorBlock && DoorBlock.isWoodenDoor(s)) {
 						BlockPos lower = s.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.immutable() : pos.below().immutable();
@@ -132,6 +181,22 @@ final class WorldGather {
 					}
 					if (s.is(Blocks.HAY_BLOCK) || s.is(Blocks.SLIME_BLOCK)) {
 						fixtures.add(new HostFixture(2, 0, host(x, y, z), host(x + 1, y + 1, z + 1), new float[3], 0));
+					}
+					if (pipeBlock(s) && !pipesDone.contains(pos.asLong())) {
+						pipe(level, pos.immutable(), fixtures, pipesDone, pipes);
+					}
+					if (pipes.contains(pos.asLong())) {
+						continue;
+					}
+					if (beamBlock(level, pos, s)) {
+						if (!beamsDone.contains(pos.asLong())) {
+							beam(level, pos.immutable(), fixtures, beamsDone);
+						}
+						// As high as it looks (its outline), not its collision's block and a half.
+						for (AABB b : s.getShape(level, pos).toAabbs()) {
+							box(out, x + b.minX, y + b.minY, z + b.minZ, x + b.maxX, y + b.maxY, z + b.maxZ);
+						}
+						continue;
 					}
 					if (highPole(level, pos, s)) {
 						if (!polesDone.contains(pos.asLong())) {
@@ -245,7 +310,185 @@ final class WorldGather {
 			double y = start.getY() + 0.5;
 			float[] pa = host(a.getX() + 0.5 - along.getStepX() * 0.5, y, a.getZ() + 0.5 - along.getStepZ() * 0.5);
 			float[] pb = host(b.getX() + 0.5 + along.getStepX() * 0.5, y, b.getZ() + 0.5 + along.getStepZ() * 0.5);
-			out.add(new Candidate(pa, pb, 0.06f));
+			out.add(new Candidate(pa, pb, 0.06f, true));
+			return;
+		}
+	}
+
+	/**
+	 * An upright run of pipe blocks, from wherever in it `start` is: a drainpipe if it's tall enough
+	 * and runs up a wall (the side with the most solid blocks along it, at its top at least). She
+	 * climbs out over the top where the wall ends there with room on it. A drainpipe's blocks go
+	 * in `pipes`.
+	 */
+	private static void pipe(ClientLevel level, BlockPos start, List<HostFixture> fixtures, Set<Long> done, Set<Long> pipes) {
+		BlockPos bottom = start, top = start;
+		while (pipeBlock(level.getBlockState(bottom.below()))) {
+			bottom = bottom.below();
+		}
+		while (pipeBlock(level.getBlockState(top.above()))) {
+			top = top.above();
+		}
+		for (BlockPos p = bottom; p.getY() <= top.getY(); p = p.above()) {
+			done.add(p.asLong());
+		}
+		int height = top.getY() - bottom.getY() + 1;
+		if (height < PIPE_MIN) {
+			return;
+		}
+		Direction wall = null;
+		int best = 0;
+		for (Direction d : Direction.Plane.HORIZONTAL) {
+			int n = 0;
+			for (BlockPos p = bottom; p.getY() <= top.getY(); p = p.above()) {
+				if (solid(level, p.relative(d))) {
+					n++;
+				}
+			}
+			if (n > best && solid(level, top.relative(d))) {
+				best = n;
+				wall = d;
+			}
+		}
+		if (wall == null || best * 2 < height) {
+			return;
+		}
+		for (BlockPos p = bottom; p.getY() <= top.getY(); p = p.above()) {
+			pipes.add(p.asLong());
+		}
+		Direction out = wall.getOpposite();
+		BlockPos behind = top.relative(wall);
+		boolean exit = level.getBlockState(behind.above()).getCollisionShape(level, behind.above()).isEmpty()
+			&& level.getBlockState(behind.above(2)).getCollisionShape(level, behind.above(2)).isEmpty();
+		// The game's pipe stands 8 cm out from its foot on the wall, and she hangs a pipe's reach out
+		// from that: the chain stands in the middle of its block, so the "wall" goes 8 cm behind it,
+		// her hands on the chain and her eyes a reach back from it (not inside it).
+		double fx = bottom.getX() + 0.5 + wall.getStepX() * 0.08, fz = bottom.getZ() + 0.5 + wall.getStepZ() * 0.08;
+		fixtures.add(new HostFixture(0, 1 | (exit ? 2 : 0), host(fx, bottom.getY(), fz), new float[3],
+			new float[] { out.getStepX(), -out.getStepZ(), 0 }, top.getY() + 1));
+	}
+
+	/**
+	 * Horizontal chains in a line along x or z, each one level with the last or a block lower (or,
+	 * walked the other way, higher): the cable from its top end to its bottom end, offered as a
+	 * zipline. Returns the chains in the cables found, which her collision leaves out.
+	 */
+	private static Set<Long> ziplines(ClientLevel level, BlockPos c, List<Candidate> out) {
+		Set<Long> cables = new HashSet<>();
+		Set<Long> seen = new HashSet<>();
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+		for (int x = c.getX() - RADIUS; x <= c.getX() + RADIUS; x++) {
+			for (int z = c.getZ() - RADIUS; z <= c.getZ() + RADIUS; z++) {
+				for (int y = c.getY() - DOWN; y <= c.getY() + UP; y++) {
+					pos.set(x, y, z);
+					BlockState s = level.getBlockState(pos);
+					if (!(s.getBlock() instanceof ChainBlock) || seen.contains(pos.asLong())) {
+						continue;
+					}
+					Direction.Axis axis = s.getValue(RotatedPillarBlock.AXIS);
+					if (axis == Direction.Axis.Y) {
+						continue;
+					}
+					Direction along = Direction.fromAxisAndDirection(axis, Direction.AxisDirection.POSITIVE);
+					List<BlockPos> line = new ArrayList<>();
+					line.add(pos.immutable());
+					extend(level, line, along.getOpposite(), axis, true);
+					extend(level, line, along, axis, false);
+					for (BlockPos p : line) {
+						seen.add(p.asLong());
+					}
+					BlockPos first = line.getFirst(), last = line.getLast();
+					if (line.size() < ZIPLINE_MIN || first.getY() == last.getY() || !oneWay(line)) {
+						continue;
+					}
+					for (BlockPos p : line) {
+						cables.add(p.asLong());
+					}
+					// From the outer face of each end chain, through the middle of the chains.
+					float[] a = host(first.getX() + 0.5 - along.getStepX() * 0.5, first.getY() + 0.5, first.getZ() + 0.5 - along.getStepZ() * 0.5);
+					float[] b = host(last.getX() + 0.5 + along.getStepX() * 0.5, last.getY() + 0.5, last.getZ() + 0.5 + along.getStepZ() * 0.5);
+					out.add(new Candidate(a, b, 0.05f, true));
+				}
+			}
+		}
+		return cables;
+	}
+
+	/**
+	 * Follows a cable of chains along `axis` from one end of `line` (its front if `front`), a block
+	 * at a time, a block up or down where it steps.
+	 */
+	private static void extend(ClientLevel level, List<BlockPos> line, Direction dir, Direction.Axis axis, boolean front) {
+		while (line.size() < 256) {
+			BlockPos end = front ? line.getFirst() : line.getLast(), next = null;
+			for (BlockPos p : new BlockPos[] { end.relative(dir), end.relative(dir).below(), end.relative(dir).above() }) {
+				if (cableBlock(level.getBlockState(p), axis)) {
+					next = p;
+					break;
+				}
+			}
+			if (next == null) {
+				return;
+			}
+			if (front) {
+				line.addFirst(next);
+			} else {
+				line.add(next);
+			}
+		}
+	}
+
+	/** Never back up once it's gone down (or the other way): one slope, not a dip or a hump. */
+	private static boolean oneWay(List<BlockPos> line) {
+		int sign = Integer.signum(line.getLast().getY() - line.getFirst().getY());
+		for (int i = 1; i < line.size(); i++) {
+			if (Integer.signum(line.get(i).getY() - line.get(i - 1).getY()) == -sign) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * A straight run of fence or wall along x or z, as a balance beam: the middle of its top (as
+	 * high as its lowest piece looks). Only with a drop both sides: nothing beside it, at its level
+	 * or the block under it, all along (so along a one-wide wall, not a garden fence or a roof's
+	 * edge).
+	 */
+	private static void beam(ClientLevel level, BlockPos start, List<HostFixture> out, Set<Long> done) {
+		for (Direction along : new Direction[] { Direction.EAST, Direction.SOUTH }) {
+			BlockPos a = start, b = start;
+			while (beamBlock(level, a.relative(along.getOpposite()), level.getBlockState(a.relative(along.getOpposite())))) {
+				a = a.relative(along.getOpposite());
+			}
+			while (beamBlock(level, b.relative(along), level.getBlockState(b.relative(along)))) {
+				b = b.relative(along);
+			}
+			int length = Math.abs(b.getX() - a.getX()) + Math.abs(b.getZ() - a.getZ()) + 1;
+			if (length < BEAM_MIN) {
+				continue;
+			}
+			double top = 1.0;
+			boolean drop = true;
+			Direction side = along.getClockWise();
+			for (BlockPos p = a; ; p = p.relative(along)) {
+				done.add(p.asLong());
+				top = Math.min(top, level.getBlockState(p).getShape(level, p).max(Direction.Axis.Y));
+				for (BlockPos q : new BlockPos[] { p.relative(side), p.relative(side.getOpposite()) }) {
+					drop &= level.getBlockState(q).getCollisionShape(level, q).isEmpty()
+						&& level.getBlockState(q.below()).getCollisionShape(level, q.below()).isEmpty();
+				}
+				if (p.equals(b)) {
+					break;
+				}
+			}
+			if (!drop) {
+				return;
+			}
+			double y = start.getY() + top;
+			float[] pa = host(a.getX() + 0.5 - along.getStepX() * 0.5, y, a.getZ() + 0.5 - along.getStepZ() * 0.5);
+			float[] pb = host(b.getX() + 0.5 + along.getStepX() * 0.5, y, b.getZ() + 0.5 + along.getStepZ() * 0.5);
+			out.add(new HostFixture(3, 0, pa, pb, new float[3], 0));
 			return;
 		}
 	}

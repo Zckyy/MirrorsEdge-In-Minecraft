@@ -58,7 +58,7 @@ public final class FaithBody {
 		0, 0, 1, 0,
 		-1, 0, 0, 0,
 		0.07f + 2 / 16f, 0.02f, 2 / 16f, 1);
-	private static MethodHandle bodyParts, bodyPart, bodyIndices, bodySections, bodyTexture, bodySkin;
+	private static MethodHandle bodyParts, bodyPart, bodyIndices, bodySections, bodyTexture, bodySkin, bodyMaterialName;
 
 	private FaithBody() {}
 
@@ -77,6 +77,7 @@ public final class FaithBody {
 			bodyTexture = linker.downcallHandle(sym.find("faith_body_texture").orElseThrow(),
 				FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS, ADDRESS));
 			bodySkin = linker.downcallHandle(sym.find("faith_body_skin").orElseThrow(), FunctionDescriptor.of(JAVA_BYTE, ADDRESS, JAVA_INT, ADDRESS));
+			bodyMaterialName = linker.downcallHandle(sym.find("faith_body_material_name").orElseThrow(), FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT));
 
 			int n = (int) bodyParts.invokeExact(faith);
 			if (n == 0) {
@@ -118,10 +119,35 @@ public final class FaithBody {
 		}
 	}
 
-	/** A material's colour texture, uploaded to Minecraft, as an entity render type. */
+	/**
+	 * A material's colour texture, uploaded to Minecraft, as an entity render type. It carries the
+	 * material's normal and specular maps for a shader pack (Iris's PBR textures, IrisCompat).
+	 */
 	private static RenderType texture(MemorySegment faith, int part, int material, Arena a) throws Throwable {
+		// Opaque: Mirror's Edge's colour maps don't carry coverage in alpha, and the pipeline cuts
+		// out anything under 0.1.
+		NativeImage colour = image(faith, part, material, 0, a, abgr -> abgr | 0xFF000000);
+		if (colour == null) {
+			return null;
+		}
+		String name = Native.cString((MemorySegment) bodyMaterialName.invokeExact(faith, part, material));
+		boolean skin = name.toLowerCase(java.util.Locale.ROOT).contains("skin");
+		Identifier id = Identifier.fromNamespaceAndPath("faithrunner", "body/p" + part + "m" + material);
+		NativeImage n = image(faith, part, material, 1, a, FaithBody::labNormal);
+		NativeImage s = image(faith, part, material, 2, a, abgr -> labSpecular(abgr, skin));
+		FaithTexture texture = new FaithTexture("Faith " + id, colour, n, s);
+		// Iris learns which texture a GPU texture is when its getTexture() is first asked for (as
+		// a resource pack's are on loading): drawing asks only for the view, so ask once here.
+		texture.getTexture();
+		Minecraft.getInstance().getTextureManager().register(id, texture);
+		FaithRunner.LOG.info("Faith's material {} ({}): normal map {}, specular map {}", id, name, n != null, s != null);
+		return RenderTypes.entityCutout(id);
+	}
+
+	/** One of a material's maps (`kind` 0 colour, 1 normal, 2 specular), each pixel through `pixel` (ABGR). */
+	private static NativeImage image(MemorySegment faith, int part, int material, int kind, Arena a, java.util.function.IntUnaryOperator pixel) throws Throwable {
 		MemorySegment w = a.allocate(JAVA_INT), h = a.allocate(JAVA_INT);
-		MemorySegment px = (MemorySegment) bodyTexture.invokeExact(faith, part, material, 0, w, h);
+		MemorySegment px = (MemorySegment) bodyTexture.invokeExact(faith, part, material, kind, w, h);
 		if (px.address() == 0) {
 			return null;
 		}
@@ -131,15 +157,33 @@ public final class FaithBody {
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
 				// RGBA bytes in memory are ABGR as a little-endian int: what setPixelABGR stores.
-				// Opaque: Mirror's Edge's colour maps don't carry coverage in alpha, and the
-				// pipeline cuts out anything under 0.1.
 				int abgr = rgba.get(JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN), ((long) y * width + x) * 4);
-				image.setPixelABGR(x, y, abgr | 0xFF000000);
+				image.setPixelABGR(x, y, pixel.applyAsInt(abgr));
 			}
 		}
-		Identifier id = Identifier.fromNamespaceAndPath("faithrunner", "body/p" + part + "m" + material);
-		Minecraft.getInstance().getTextureManager().register(id, new DynamicTexture(() -> "Faith " + id, image));
-		return RenderTypes.entityCutout(id);
+		return image;
+	}
+
+	/**
+	 * Mirror's Edge's tangent-space normal map (RGB = XYZ, Unreal's green-down, as LabPBR's) as
+	 * LabPBR's: X and Y kept (the pack works out Z), no ambient occlusion in blue (255), no height
+	 * in alpha (255: flat, so no parallax).
+	 */
+	static int labNormal(int abgr) {
+		return 0xFFFF0000 | (abgr & 0x0000FFFF);
+	}
+
+	/**
+	 * Mirror's Edge's specular map is a grey intensity (how much highlight, 0..255). As LabPBR's:
+	 * red is perceptual smoothness, from matte (0.15) where it has none to a soft sheen (0.50)
+	 * where it's brightest; green is F0, 10 (0.04, a dielectric: skin, cloth, leather); blue,
+	 * subsurface scattering for skin (190) and none elsewhere; alpha 255, no emission.
+	 */
+	static int labSpecular(int abgr, boolean skin) {
+		int intensity = ((abgr & 0xFF) + (abgr >> 8 & 0xFF) + (abgr >> 16 & 0xFF)) / 3;
+		int smoothness = Math.round(255 * (0.15f + 0.35f * intensity / 255f));
+		int sss = skin ? 190 : 0;
+		return 0xFF000000 | sss << 16 | 10 << 8 | smoothness;
 	}
 
 	/**
@@ -269,12 +313,26 @@ public final class FaithBody {
 				}
 				int[] idx = part.indices;
 				collector.submitCustomGeometry(pose, type, (at, buf) -> {
-					for (int i = s.first; i + 2 < s.first + s.count; i += 3) {
-						// The pipeline draws quads: each triangle as one with its last corner twice.
-						vertex(buf, at, v, idx[i], light[idx[i]]);
-						vertex(buf, at, v, idx[i + 1], light[idx[i + 1]]);
-						vertex(buf, at, v, idx[i + 2], light[idx[i + 2]]);
-						vertex(buf, at, v, idx[i + 2], light[idx[i + 2]]);
+					// Her normals are smooth, per vertex: Iris mustn't flatten them to each face's.
+					boolean was = IrisCompat.keepNormals();
+					try {
+						int last = idx[s.first];
+						for (int i = s.first; i + 2 < s.first + s.count; i += 3) {
+							// The pipeline draws quads: each triangle as one with its last corner twice.
+							vertex(buf, at, v, idx[i], light[idx[i]]);
+							vertex(buf, at, v, idx[i + 1], light[idx[i + 1]]);
+							vertex(buf, at, v, idx[i + 2], light[idx[i + 2]]);
+							vertex(buf, at, v, idx[i + 2], light[idx[i + 2]]);
+							last = idx[i + 2];
+						}
+						// Iris finishes a quad when the next vertex starts: an empty one (one point
+						// four times) last, so her last triangle is finished in here, and the one
+						// finished out there draws nothing.
+						for (int k = 0; k < 4; k++) {
+							vertex(buf, at, v, last, light[last]);
+						}
+					} finally {
+						IrisCompat.restoreNormals(was);
 					}
 				});
 			}

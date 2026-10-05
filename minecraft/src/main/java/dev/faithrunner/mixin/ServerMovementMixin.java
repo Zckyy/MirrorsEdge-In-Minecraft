@@ -23,7 +23,7 @@ public abstract class ServerMovementMixin {
 	@Shadow public ServerPlayer player;
 
 	private boolean faithrunner$hers() {
-		return Faith.active && this.player.level().getServer() instanceof IntegratedServer && this.player.getUUID().equals(Faith.owner);
+		return Faith.driving() && this.player.level().getServer() instanceof IntegratedServer && this.player.getUUID().equals(Faith.owner);
 	}
 
 	@Inject(method = "shouldCheckPlayerMovement", at = @At("HEAD"), cancellable = true)

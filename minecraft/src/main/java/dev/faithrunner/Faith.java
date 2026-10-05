@@ -13,6 +13,7 @@ import org.joml.Vector3f;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.phys.Vec3;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -35,13 +36,29 @@ public final class Faith {
 	private static MemorySegment frame;
 	private static volatile String loadError;
 
-	/** Faith is driving the player. Read by the server-side mixins too (singleplayer, same JVM). */
+	/** Faith is on (F8). Read by the server-side mixins too (singleplayer, same JVM). */
 	public static volatile boolean active;
+	/**
+	 * On, but Minecraft has the player for now: what Mirror's Edge has no move for (swimming, lava,
+	 * riding, an elytra, creative flight). She takes over again once the player is back on the ground.
+	 */
+	public static volatile boolean handedOff;
+	/** Why she handed off ("swimming", "riding", ...), for the log and the tests. */
+	static volatile String handOffReason;
 	/** The player she drives (the singleplayer owner, for the server-side mixins). */
 	public static volatile UUID owner;
 
+	/** More than a block of water to swim in: she wades through a one-deep ditch on its floor. */
+	private static final double SWIM_DEPTH = 1.0;
+	/** How long the player is out of the water (off the boat, ...) before she takes over again. */
+	private static final long RESUME_NANOS = 150_000_000L;
+	/** Her moves out of which a jump opens an elytra: falling or flying free, not on a wall or ledge. */
+	private static final java.util.Set<String> GLIDE_FROM = java.util.Set.of("Air", "Swing jump");
+
 	static boolean haveFrame;
-	private static long lastNanos;
+	private static long lastNanos, resumeSince;
+	/** Crouch held from the client tests (their key presses don't reach the sneak binding). */
+	static volatile boolean testCrouch;
 	/** Mouse look since the last step (degrees: yaw right, pitch down). */
 	private static float lookYaw, lookPitch;
 	/** Where we last put the player: anything else moving it (teleport, respawn) re-places her. */
@@ -104,6 +121,7 @@ public final class Faith {
 		}
 		if (active) {
 			active = false;
+			handedOff = false;
 			pauseSound(true);
 			p.sendOverlayMessage(Component.literal("Faith: off"));
 			return;
@@ -119,6 +137,7 @@ public final class Faith {
 		owner = p.getUUID();
 		WorldGather.rebuild(mc, true);
 		place(p);
+		handedOff = false;
 		active = true;
 		pauseSound(false);
 		lastNanos = System.nanoTime();
@@ -178,7 +197,7 @@ public final class Faith {
 					cs.set(JAVA_FLOAT, o + 12 + k * 4, c.b()[k]);
 				}
 				cs.set(JAVA_FLOAT, o + 24, c.thickness());
-				cs.set(JAVA_INT, o + 28, 1);
+				cs.set(JAVA_INT, o + 28, c.capsule() ? 1 : 0);
 			}
 			lib.setCandidates.invokeExact(handle, cs, candidates.size());
 			MemorySegment seg = a.allocateFrom(JAVA_FLOAT, tris);
@@ -228,6 +247,86 @@ public final class Faith {
 		}
 	}
 
+	/** Faith has the player: on, and not handed off to Minecraft. */
+	public static boolean driving() {
+		return active && !handedOff;
+	}
+
+	/** What she has no move for, so Minecraft's own movement takes over while it lasts; null if none. */
+	private static String handOffFor(LocalPlayer p) {
+		if (p.isSpectator() || p.getAbilities().flying) {
+			return "flying";
+		}
+		if (p.isPassenger()) {
+			return "riding";
+		}
+		if (p.isFallFlying()) {
+			return "gliding";
+		}
+		if (p.isInLava()) {
+			return "lava";
+		}
+		if (p.getFluidHeight(FluidTags.WATER) > SWIM_DEPTH) {
+			return "swimming";
+		}
+		return null;
+	}
+
+	/** A jump opens the elytra only where she's falling free (not kicking off a wall or a ledge). */
+	public static boolean mayGlide() {
+		return !driving() || GLIDE_FROM.contains(stateName());
+	}
+
+	/**
+	 * Minecraft takes the player as she leaves it: the last step's velocity is already the player's,
+	 * so a running dive or a jump onto a boat carries on. Her landings already spared it Minecraft's
+	 * fall damage, so the server's fall starts over from here.
+	 */
+	private static void handOff(Minecraft mc, LocalPlayer p, String reason) {
+		handedOff = true;
+		handOffReason = reason;
+		resumeSince = 0;
+		lookYaw = lookPitch = 0;
+		pauseSound(true);
+		p.resetFallDistance();
+		var server = mc.getSingleplayerServer();
+		if (server != null) {
+			UUID id = p.getUUID();
+			server.execute(() -> {
+				var sp = server.getPlayerList().getPlayer(id);
+				if (sp != null) {
+					sp.resetFallDistance();
+				}
+			});
+		}
+		FaithRunner.LOG.info("Faith hands the player to Minecraft: {}", reason);
+	}
+
+	/**
+	 * Out of what she handed off for for a moment (not just bobbing at the water's edge), and on the
+	 * ground or a ladder now: hers again. Only now, not for a while: jump held, Minecraft hops, and
+	 * each landing lasts a tick.
+	 */
+	private static boolean readyToResume(LocalPlayer p, long now) {
+		if (handOffFor(p) != null) {
+			resumeSince = 0;
+			return false;
+		}
+		if (resumeSince == 0) {
+			resumeSince = now;
+		}
+		return now - resumeSince >= RESUME_NANOS && (p.onGround() || p.onClimbable());
+	}
+
+	private static void resume(Minecraft mc, LocalPlayer p) {
+		handedOff = false;
+		lookYaw = lookPitch = 0;
+		place(p);
+		WorldGather.rebuild(mc, true);
+		pauseSound(false);
+		FaithRunner.LOG.info("Faith takes the player back ({} over)", handOffReason);
+	}
+
 	/** Mouse look for the player while Faith has it (Entity.turn's degrees). */
 	public static void addLook(double xo, double yo) {
 		lookYaw += (float) xo * 0.15f;
@@ -247,10 +346,21 @@ public final class Faith {
 		// Her sounds play outside Minecraft's: hold them with the pause menu.
 		if (mc.isPaused() != soundPaused) {
 			soundPaused = mc.isPaused();
-			pauseSound(soundPaused);
+			pauseSound(soundPaused || handedOff);
 		}
 		if (mc.isPaused()) {
 			lookYaw = lookPitch = 0;
+			return;
+		}
+		if (handedOff) {
+			if (!readyToResume(p, now)) {
+				return;
+			}
+			resume(mc, p);
+		}
+		String reason = handOffFor(p);
+		if (reason != null) {
+			handOff(mc, p, reason);
 			return;
 		}
 		// Moved by something else (a teleport, a respawn, the server putting her back): from there.
@@ -273,7 +383,7 @@ public final class Faith {
 			WorldGather.rebuild(mc, true);
 		}
 		var o = mc.options;
-		boolean jump = o.keyJump.isDown(), crouch = o.keyShift.isDown();
+		boolean jump = o.keyJump.isDown(), crouch = o.keyShift.isDown() || testCrouch;
 		boolean turn = FaithRunner.TURN.isDown(), melee = FaithRunner.MELEE.isDown();
 		float fwd = (o.keyUp.isDown() ? 1 : 0) - (o.keyDown.isDown() ? 1 : 0);
 		float strafe = (o.keyRight.isDown() ? 1 : 0) - (o.keyLeft.isDown() ? 1 : 0);
@@ -351,7 +461,7 @@ public final class Faith {
 
 	public static boolean drivesCamera() {
 		Minecraft mc = Minecraft.getInstance();
-		return active && haveFrame && mc.options.getCameraType().isFirstPerson();
+		return driving() && haveFrame && mc.options.getCameraType().isFirstPerson();
 	}
 
 	static MemorySegment handle() {

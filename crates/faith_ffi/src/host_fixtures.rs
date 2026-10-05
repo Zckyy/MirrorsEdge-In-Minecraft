@@ -9,6 +9,8 @@ use crate::{guard, handle, Faith, FaithVec3};
 /// `kind` 0 ladder: `a` its foot on the wall's face, `n` out from the wall, `top` the height she
 /// climbs out onto; `flags` 1 a drainpipe, 2 she can climb out over the top. 1 door: the closed
 /// door's box `a`..`b`, `n` the side she comes from. 2 soft landing: the pad's box `a`..`b`.
+/// 3 balance beam: the centre line of its top, `a` to `b` (the host has judged it one: its own
+/// beams stand on narrow walls, which faith_move's checks for a plank over a gap would refuse).
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct FaithHostFixture {
@@ -80,6 +82,7 @@ impl Faith {
                 }
                 1 => Fixture::Door { b: local_box(x.a, x.b), n: dir(x.n).normalize_or_zero() },
                 2 => Fixture::SoftPad { b: local_box(x.a, x.b) },
+                3 => Fixture::Beam { a: self.local_point(x.a.into()), b: self.local_point(x.b.into()) },
                 _ => return None,
             })))
             .collect()

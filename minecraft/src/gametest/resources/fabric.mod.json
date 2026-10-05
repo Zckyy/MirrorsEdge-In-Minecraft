@@ -6,7 +6,11 @@
 	"environment": "client",
 	"entrypoints": {
 		"fabric-client-gametest": [
-			"dev.faithrunner.test.FaithBlocksTest"
+			"dev.faithrunner.test.FaithBlocksTest",
+			"dev.faithrunner.test.FaithHandOffTest",
+			"dev.faithrunner.test.FaithCloseUpTest",
+			"dev.faithrunner.test.FaithFixturesTest",
+			"dev.faithrunner.test.FaithShowcaseTest"
 		]
 	},
 	"depends": {

@@ -16,7 +16,7 @@ import net.minecraft.world.entity.LivingEntity;
 @Mixin(LivingEntity.class)
 public abstract class ServerPlayerMixin {
 	private boolean faithrunner$hers() {
-		return Faith.active && (Object) this instanceof ServerPlayer sp && sp.getUUID().equals(Faith.owner);
+		return Faith.driving() && (Object) this instanceof ServerPlayer sp && sp.getUUID().equals(Faith.owner);
 	}
 
 	@Inject(method = "isInPostImpulseGraceTime", at = @At("HEAD"), cancellable = true)

@@ -15,7 +15,7 @@ import net.minecraft.world.entity.player.Player;
 public abstract class PlayerFallMixin {
 	@Inject(method = "causeFallDamage", at = @At("HEAD"), cancellable = true)
 	private void faithrunner$fall(double fallDistance, float damageModifier, DamageSource damageSource, CallbackInfoReturnable<Boolean> cir) {
-		if (Faith.active && (Object) this instanceof ServerPlayer sp && sp.getUUID().equals(Faith.owner)) {
+		if (Faith.driving() && (Object) this instanceof ServerPlayer sp && sp.getUUID().equals(Faith.owner)) {
 			cir.setReturnValue(false);
 		}
 	}

@@ -90,12 +90,36 @@ fabricApi {
 	}
 }
 
+// -PresourcePack=<zip>: the client tests turn that resource pack on (e.g. a LabPBR pack with a shader).
+// -Ptests=Fixtures,HandOff: only those client test suites run (FaithFixturesTest, ...).
+def resourcePack = project.findProperty("resourcePack")
+
 loom.runs.configureEach {
-	vmArgs "--enable-native-access=ALL-UNNAMED", "-Dfaithrunner.heldOnly=" + (project.hasProperty("heldOnly") ? "true" : "false"), "-Dfaithrunner.dll=" + faithDll
+	vmArgs "--enable-native-access=ALL-UNNAMED", "-Dfaithrunner.heldOnly=" + (project.hasProperty("heldOnly") ? "true" : "false"), "-Dfaithrunner.dll=" + faithDll,
+		"-Dfaithrunner.resourcePack=" + (resourcePack ? file(resourcePack).name : ""),
+		"-Dfaithrunner.tests=" + (project.findProperty("tests") ?: "")
+}
+
+// -PwindowSize=1280x720: the client tests' game window starts at that size (for recording it: a
+// resize from inside a test leaves the window showing only part of the picture).
+if (project.hasProperty("windowSize")) {
+	def (w, h) = project.property("windowSize").toString().tokenize("x")
+	loom.runs.configureEach {
+		programArgs "--width", w, "--height", h
+	}
+}
+
+if (resourcePack) {
+	tasks.named("runClientGameTest") {
+		doFirst {
+			copy { from file(resourcePack); into file("build/run/clientGameTest/resourcepacks") }
+		}
+	}
 }
 
 // -PwithShader: the test world runs a shader pack through Iris (with -PwithIris). The pack's
 // zip: -PshaderZip=<path>, or Complementary Reimagined in the deploy profile's shaderpacks.
+// Its options: -PshaderOptions="RP_MODE=3,NORMAL_MAP_STRENGTH=100" (the pack's own names).
 if (project.hasProperty("withShader")) {
 	tasks.named("runClientGameTest") {
 		doFirst {
@@ -105,6 +129,11 @@ if (project.hasProperty("withShader")) {
 			}
 			def dir = file("build/run/clientGameTest")
 			copy { from zip; into new File(dir, "shaderpacks") }
+			def options = new File(dir, "shaderpacks/${zip.name}.txt")
+			options.delete()
+			if (project.hasProperty("shaderOptions")) {
+				options.text = project.property("shaderOptions").toString().split(",").collect { it.trim() }.join("\n") + "\n"
+			}
 			new File(dir, "config").mkdirs()
 			new File(dir, "config/iris.properties").text = "enableShaders=true\nshaderPack=${zip.name}\n"
 		}
@@ -112,14 +141,14 @@ if (project.hasProperty("withShader")) {
 }
 
 // ./gradlew deploy: builds the mod and puts it (and faith_ffi.dll) in the Faith Runner launcher profile.
+// (Two Copy tasks, not a copy {} in doLast: that isn't allowed with the configuration cache.)
+tasks.register("deployDll", Copy) {
+	from System.getProperty("faithrunner.dll", faithDll)
+	into "${System.getenv('APPDATA')}/.minecraft/faithrunner-26.3"
+}
+
 tasks.register("deploy", Copy) {
-	dependsOn "build"
+	dependsOn "build", "deployDll"
 	from(tasks.named("jar"))
 	into "${System.getenv('APPDATA')}/.minecraft/faithrunner-26.3/mods"
-	doLast {
-		copy {
-			from System.getProperty("faithrunner.dll", faithDll)
-			into "${System.getenv('APPDATA')}/.minecraft/faithrunner-26.3"
-		}
-	}
 }

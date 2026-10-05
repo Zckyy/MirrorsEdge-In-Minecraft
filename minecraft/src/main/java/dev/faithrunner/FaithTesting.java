@@ -14,6 +14,11 @@ public final class FaithTesting {
 		Faith.toggle(mc);
 	}
 
+	/** Holds crouch (or lets go), as the sneak key would. */
+	public static void crouch(boolean held) {
+		Faith.testCrouch = held;
+	}
+
 	/** Turns her view (degrees: right, down), as the mouse would. */
 	public static void turn(float yaw, float pitch) {
 		Faith.addLook(yaw / 0.15, pitch / 0.15);
@@ -56,6 +61,11 @@ public final class FaithTesting {
 
 	public static net.minecraft.client.KeyMapping meleeKey() {
 		return FaithRunner.MELEE;
+	}
+
+	/** Who has the player: "off", "faith", or Minecraft and why ("minecraft: swimming"). */
+	public static String mode() {
+		return !Faith.active ? "off" : Faith.handedOff ? "minecraft: " + Faith.handOffReason : "faith";
 	}
 
 	public static String state() {

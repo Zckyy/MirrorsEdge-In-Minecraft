@@ -9,6 +9,7 @@
 		"ServerMovementMixin",
 		"ServerPlayerMixin",
 		"PlayerFallMixin",
+		"PlayerGlideMixin",
 		"GameRendererMixin",
 		"HandsRendererMixin",
 		"IrisShadowMixin",
