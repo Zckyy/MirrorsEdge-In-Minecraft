@@ -13,6 +13,12 @@
 //!   (UTdMove_MeleeBase's tick, native): each frame from the bone (plus TraceOffset, turned with
 //!   her) 10 uu on, the way the limb moved, clamped into a cone round her facing. A touch counts
 //!   if the target is ahead (dot > 0.4) and within 140 uu (TriggerDamage).
+//!
+//! Minecraft's mobs aren't Mirror's Edge's cops: they come in every size (a chicken, a spider, a
+//! ravager), and the game's reaches, measured centre to centre on a 30 uu cop, miss the big ones
+//! and the cones miss the near ones. So here reach is measured to the target's side (the game's
+//! reach less a cop's radius, plus [`LENIENCY`]), "ahead" is to the nearest side of it, and a
+//! blow lands on whoever it reaches, not only on the target picked when it was thrown.
 
 use glam::Vec3;
 
@@ -63,12 +69,44 @@ pub(crate) fn class(kind: MeleeKind) -> MeleeClass {
     }
 }
 
-/// GetMeleeTarget's score (0x11c2dc0).
+/// A cop's CollisionRadius: the game's reaches are to its middle, so this far past its side.
+const COP_RADIUS: f32 = uu(30.0);
+/// How much further than the game a blow reaches (m), for mobs that duck about and a mouse aim.
+pub(crate) const LENIENCY: f32 = 0.2;
+
+/// A centre-to-centre reach of the game's as a reach to the target's side.
+fn side_reach(centre_reach: f32) -> f32 {
+    centre_reach - COP_RADIUS + LENIENCY
+}
+
+/// How far `from` is from the target's side (its cylinder, not its middle).
+pub(crate) fn gap_to(t: &Target, from: Vec3) -> f32 {
+    let d = t.centre - from;
+    let h = (horiz(d).length() - t.radius).max(0.0);
+    let v = (d.y.abs() - t.half_height).max(0.0);
+    (h * h + v * v).sqrt()
+}
+
+/// How square in front of `from` the target is, horizontally: the cosine of the angle between
+/// `facing` and the nearest side of it (1 if any of it is straight ahead, or `from` is in it).
+pub(crate) fn aim_at(t: &Target, from: Vec3, facing: Vec3) -> f32 {
+    let d = horiz(t.centre - from);
+    let dist = d.length();
+    let f = horiz(facing).normalize_or_zero();
+    if dist <= t.radius || f == Vec3::ZERO {
+        return 1.0;
+    }
+    let angle = (d / dist).dot(f).clamp(-1.0, 1.0).acos();
+    let half = (t.radius / dist).clamp(0.0, 1.0).asin();
+    (angle - half).max(0.0).cos()
+}
+
+/// GetMeleeTarget's score (0x11c2dc0), aimed at the target's nearest side.
 fn score(t: &Target, reach: f32, from: Vec3, facing: Vec3) -> f32 {
     let d = t.centre - from;
     let dist = d.length();
     let near = (reach - dist) / reach * 0.2;
-    let aim = d.normalize_or_zero().dot(facing).max(0.0) * 0.8;
+    let aim = aim_at(t, from, facing).max(0.0) * 0.8;
     if aim == 0.0 {
         return 0.0;
     }
@@ -155,23 +193,33 @@ impl Controller {
         self.events.push(Event::MeleeHit { target: t.id, damage, momentum, kind });
     }
 
-    /// TestHit (TdMove_Melee, TdMove_MeleeCrouch), when the wind-up clip ends.
+    /// TestHit (TdMove_Melee, TdMove_MeleeCrouch), when the wind-up clip ends: the target if it's
+    /// in reach, else whoever else is (the nearest).
     fn test_hit(&mut self) -> bool {
         let Some(m) = self.melee else { return false };
-        let Some(t) = self.target_now() else { return false };
         let facing = forward(self.yaw);
-        let to = t.centre - self.centre();
-        let (ahead, reach, push) = match m.kind {
+        let me = self.centre();
+        let (reach, push) = match m.kind {
             // Normal(ToTarget2d) . Rotation > 0.8 && VSize(ToTarget) < 170; momentum 150.
-            MeleeKind::Punch => (horiz(to).normalize_or_zero().dot(facing), uu(170.0), uu(150.0)),
+            MeleeKind::Punch => (side_reach(uu(170.0)), uu(150.0)),
             // Normal(ToTarget) . Rotation > 0.8 && VSize(ToTarget) < 110; momentum 800.
-            _ => (to.normalize_or_zero().dot(facing), uu(110.0), uu(800.0)),
+            _ => (side_reach(uu(110.0)), uu(800.0)),
         };
-        if ahead > 0.8 && to.length() < reach {
-            self.deal(&t, class(m.kind).damage, facing * push);
-            return true;
-        }
-        false
+        let lands = |t: &Target| aim_at(t, me, facing) > 0.75 && gap_to(t, me) < reach;
+        let t = match self.target_now().filter(|t| lands(t)) {
+            Some(t) => t,
+            None => match self
+                .targets
+                .iter()
+                .filter(|t| lands(t))
+                .min_by(|a, b| gap_to(a, me).total_cmp(&gap_to(b, me)))
+            {
+                Some(t) => *t,
+                None => return false,
+            },
+        };
+        self.deal(&t, class(m.kind).damage, facing * push);
+        true
     }
 
     /// TdMove_MeleeBase's tick: the limb's sweep, then TriggerDamage's checks.
@@ -190,24 +238,18 @@ impl Controller {
         self.melee_last_start = start;
         let dir = clamp_to_cone(moved, facing, 35.0).normalize_or_zero();
         let delta = dir * uu(10.0);
-        let Some(hit) = self.targets.iter().copied().find(|t| sweep_touches(t, start, delta, c.extent)) else { return };
-        // TriggerDamage: only the chosen target counts (the wallrun kick's check compares the
-        // traced pawn with itself, so for it anyone touched does).
-        let t = match m.kind {
-            MeleeKind::WallRunKick => self.target_now().unwrap_or(hit),
-            _ => match self.target_now() {
-                Some(t) if t.id == hit.id => t,
-                _ => return,
-            },
-        };
-        let to = t.centre - self.centre();
-        let verified = match (m.kind, m.air_type) {
+        let extent = c.extent + Vec3::new(LENIENCY, 0.0, LENIENCY);
+        // TriggerDamage: ahead (dot > 0.4) and within 140 uu, or anything for the jump kick from
+        // above. The game only counts its chosen target (the wallrun kick, anyone touched); here
+        // the chosen one if it's touched, else anyone touched.
+        let me = self.centre();
+        let verified = |t: &Target| match (m.kind, m.air_type) {
             (MeleeKind::AirKick, 2) => true,
-            _ => to.normalize_or_zero().dot(facing) > 0.4 && to.length() < uu(140.0),
+            _ => aim_at(t, me, facing) > 0.4 && gap_to(t, me) < side_reach(uu(140.0)),
         };
-        if !verified {
-            return;
-        }
+        let touched: Vec<Target> = self.targets.iter().copied().filter(|t| sweep_touches(t, start, delta, extent) && verified(t)).collect();
+        let chosen = self.melee.and_then(|m| m.target);
+        let Some(t) = touched.iter().find(|t| Some(t.id) == chosen).or(touched.first()).copied() else { return };
         let speed2d = self.horizontal_speed();
         match m.kind {
             MeleeKind::AirKick => {

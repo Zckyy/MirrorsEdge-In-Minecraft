@@ -148,3 +148,44 @@ fn the_sweep_direction_keeps_the_games_cone_quirk() {
     assert!((c.length() - 2.0).abs() < 1e-4);
     assert!(c.normalize().dot(f) > v60.normalize().dot(f));
 }
+
+/// A Minecraft mob: `radius` wide and `half_height` high, standing `at` (feet).
+fn mob(id: u32, at: Vec3, radius: f32, half_height: f32) -> Target {
+    Target { id, centre: at + Vec3::Y * half_height, radius, half_height, eye: half_height * 0.8, facing: Vec3::Z }
+}
+
+fn punch_outcome(targets: Vec<Target>) -> (Option<bool>, Vec<(u32, f32)>) {
+    let w = floor();
+    let mut c = standing();
+    c.targets = targets;
+    let ev = run(&mut c, &w, 1.2, press_once());
+    (ev.iter().find_map(|e| if let Event::MeleeOutcome { hit, .. } = e { Some(*hit) } else { None }), hits(&ev))
+}
+
+#[test]
+fn a_punch_reaches_the_side_of_a_big_mob_not_its_middle() {
+    // A spider (1.4 wide): its middle 2 m off, its side 1.3 m.
+    assert_eq!(punch_outcome(vec![mob(1, Vec3::new(0.0, 0.0, -2.0), 0.7, 0.45)]).0, Some(true));
+    // A chicken, small and low, at arm's length.
+    assert_eq!(punch_outcome(vec![mob(2, Vec3::new(0.0, 0.0, -1.0), 0.2, 0.35)]).0, Some(true));
+}
+
+#[test]
+fn a_punch_lands_on_a_mob_a_little_off_to_the_side() {
+    // 40 degrees off centre (the game's 0.8 cone is 37), but its near side well inside.
+    let a = 40f32.to_radians();
+    assert_eq!(punch_outcome(vec![mob(3, Vec3::new(a.sin(), 0.0, -a.cos()) * 1.2, 0.3, 0.95)]).0, Some(true));
+    // Off to the side, not in front: a miss.
+    assert_eq!(punch_outcome(vec![mob(4, Vec3::new(1.2, 0.0, 0.0), 0.3, 0.95)]).0, Some(false));
+}
+
+#[test]
+fn a_punch_lands_on_whoever_is_in_reach_if_the_target_is_not() {
+    // Picked: the one dead ahead, far off. In reach: one just off to the side.
+    let far = mob(5, Vec3::new(0.0, 0.0, -6.0), 0.3, 0.95);
+    let near = mob(6, Vec3::new(0.9, 0.0, -0.8), 0.3, 0.95);
+    assert_eq!(pick(&[far, near], 9.0, Vec3::Y * 0.9, Vec3::NEG_Z).map(|t| t.id), Some(5), "the far one is picked");
+    let (outcome, h) = punch_outcome(vec![far, near]);
+    assert_eq!(outcome, Some(true));
+    assert_eq!(h, vec![(6, 33.5)]);
+}

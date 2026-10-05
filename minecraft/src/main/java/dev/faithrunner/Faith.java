@@ -14,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -54,6 +55,16 @@ public final class Faith {
 	private static final long RESUME_NANOS = 150_000_000L;
 	/** Her moves out of which a jump opens an elytra: falling or flying free, not on a wall or ledge. */
 	private static final java.util.Set<String> GLIDE_FROM = java.util.Set.of("Air", "Swing jump");
+
+	/**
+	 * Her world is only the outside faces of the blocks, so once inside a block (a tree's canopy,
+	 * say) there's nothing to push her out and its faces hold her in. Inside one this long (s),
+	 * outside the moves that pass through corners on purpose, she's put on the nearest open spot.
+	 */
+	private static final float STUCK_FOR = 0.3f;
+	private static final java.util.Set<String> PASSES_THROUGH = java.util.Set.of("Vault", "Vault onto", "Mantle", "Pull up", "Step up",
+		"Springboard", "Grab transfer", "Onto ladder", "Off ladder", "Takedown", "Air barge", "Swing", "Swing jump", "Zipline");
+	private static float stuckFor;
 
 	static boolean haveFrame;
 	private static long lastNanos, resumeSince;
@@ -444,6 +455,31 @@ public final class Faith {
 		p.setOnGround(frame.get(JAVA_BYTE, Native.F_ON_GROUND) != 0);
 		p.fallDistance = 0;
 		lastSet = p.position();
+		unstick(mc, p, dt);
+	}
+
+	/** Out of a block she's got inside (STUCK_FOR). */
+	private static void unstick(Minecraft mc, LocalPlayer p, float dt) {
+		Vec3 f = p.position();
+		// Her middle, well in from her sides, head and feet: only in a block, not against one.
+		AABB core = new AABB(f.x - 0.18, f.y + 0.25, f.z - 0.18, f.x + 0.18, f.y + 1.0, f.z + 0.18);
+		if (PASSES_THROUGH.contains(stateName()) || !WorldGather.inSolid(mc.level, core)) {
+			stuckFor = 0;
+			return;
+		}
+		stuckFor += dt;
+		if (stuckFor < STUCK_FOR) {
+			return;
+		}
+		stuckFor = 0;
+		Vec3 free = WorldGather.freeSpot(mc.level, f);
+		if (free == null) {
+			return;
+		}
+		FaithRunner.LOG.info("Faith was inside a block at {} ({}): out to {}", f, stateName(), free);
+		p.setPos(free.x, free.y, free.z);
+		place(p);
+		WorldGather.rebuild(mc, true);
 	}
 
 	/** What her feet and hands touch (for her step sounds), when it changes. */

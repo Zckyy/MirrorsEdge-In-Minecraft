@@ -14,7 +14,9 @@ import dev.faithrunner.FaithTesting;
 /**
  * Minecraft's blocks as more of Mirror's Edge's fixtures: chains up a wall as a drainpipe, a line
  * of chains stepping down as a zipline, fences and walls along a one-wide wall as balance beams,
- * and a fence on the ground as a railing she vaults. Fails on the first one she doesn't use.
+ * and a fence on the ground as a railing she vaults; and a tree's vines hanging free, which she
+ * doesn't climb, and its leaves, which she's put out of if she ends up inside them. Fails on the
+ * first one that doesn't work.
  */
 public class FaithFixturesTest implements FabricClientGameTest {
 	private ClientGameTestContext context;
@@ -46,7 +48,7 @@ public class FaithFixturesTest implements FabricClientGameTest {
 	 * Holds W for up to `ticks` (pressing jump once she's past `jumpZ`), collecting her moves, until
 	 * `done` holds of them; then checks `want` was among them and `ok` of where she ended up.
 	 */
-	private void run(String label, int ticks, double jumpZ, String want, Predicate<Set<String>> done, Predicate<Minecraft> ok, String okWhat) {
+	private Set<String> run(String label, int ticks, double jumpZ, String want, Predicate<Set<String>> done, Predicate<Minecraft> ok, String okWhat) {
 		Set<String> states = new LinkedHashSet<>();
 		context.getInput().holdKey(o -> o.keyUp);
 		boolean jumped = jumpZ > 1e8;
@@ -73,6 +75,13 @@ public class FaithFixturesTest implements FabricClientGameTest {
 		if (!context.computeOnClient(ok::test)) {
 			throw new AssertionError(label + ": " + okWhat + ": " + states + " -> " + where);
 		}
+		return states;
+	}
+
+	/** Is the player's middle in a leaf block? */
+	private static boolean inLeaves(Minecraft mc) {
+		var at = net.minecraft.core.BlockPos.containing(mc.player.position().add(0, 0.9, 0));
+		return mc.level.getBlockState(at).getBlock() instanceof net.minecraft.world.level.block.LeavesBlock;
 	}
 
 	@Override
@@ -108,6 +117,12 @@ public class FaithFixturesTest implements FabricClientGameTest {
 			}
 			// A fence across the way on the ground (x 80): a railing, as high as it looks.
 			cmd("fill 77 -60 6 83 -60 6 minecraft:oak_fence");
+			// A tree's edge (x 100): leaves overhead from z 6, vines hanging off their north side down
+			// to head height, nothing behind them.
+			cmd("fill 98 -57 6 102 -56 10 minecraft:oak_leaves[persistent=true]");
+			cmd("fill 99 -59 5 101 -57 5 minecraft:vine[south=true]");
+			// A clump of leaves (x 120) to find herself inside.
+			cmd("fill 119 -60 4 121 -58 6 minecraft:oak_leaves[persistent=true]");
 			context.waitTicks(20);
 			context.runOnClient(FaithTesting::toggle);
 			context.waitTicks(20);
@@ -124,6 +139,18 @@ public class FaithFixturesTest implements FabricClientGameTest {
 			run("wall beam", 120, 1e9, "Balance", s -> false, mc -> z(mc) > 8, "didn't walk along it");
 			start(80.5, -60, 1.5);
 			run("railing", 60, 4.6, "Vault", s -> false, mc -> z(mc) > 7, "didn't get over it");
+			start(100.5, -60, 1.5);
+			Set<String> vines = run("hanging vines", 60, 1e9, "Ground", s -> false, mc -> z(mc) > 9, "didn't walk on under the tree");
+			if (vines.contains("Onto ladder") || vines.contains("Ladder")) {
+				throw new AssertionError("hanging vines: climbed them: " + vines);
+			}
+			cmd("tp @p 120.5 -59 5.5 0 0");
+			context.waitTicks(40);
+			String where = context.computeOnClient(FaithTesting::where);
+			System.out.println("FAITH-FIXTURES inside leaves -> " + where);
+			if (context.computeOnClient(FaithFixturesTest::inLeaves)) {
+				throw new AssertionError("inside leaves: still in them: " + where);
+			}
 		}
 	}
 }

@@ -18,6 +18,7 @@ import net.minecraft.world.level.block.DirectionalBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceBlock;
 import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.RodBlock;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.StairBlock;
@@ -28,14 +29,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.block.state.properties.StairsShape;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The blocks around Faith as her world, in the host frame (host = (x, -z, y)):
  * - collision: each block's boxes as triangles (full cubes only where they open onto something);
  * - stairs (straight, bottom half) as a 45 degree ramp, as Mirror's Edge's levels put collision
  *   ramps over their stairs: walked up, not stepped up one by one;
- * - ladders and vines as her ladders (climbing out at the top where there's a roof to step onto);
+ * - ladders, and vines against a wall (not hanging free or over leaves), as her ladders (climbing
+ *   out at the top where there's a roof to step onto, and only as high as she has room);
  * - closed wooden doors as doors she barges or kicks open (and Minecraft's door opens with them);
  * - hay bales and slime blocks as soft landings;
  * - iron bars and fences with two clear blocks under them, offered as swing poles (faith_ffi
@@ -75,6 +79,8 @@ final class WorldGather {
 	static final int PIPE_MIN = 3;
 	/** A balance beam, this many blocks long at least (faith_ffi wants 2.5 m). */
 	static final int BEAM_MIN = 3;
+	/** A ladder, this many blocks high at least (shorter is a step she climbs or vaults). */
+	static final int LADDER_MIN = 2;
 
 	private WorldGather() {}
 
@@ -91,6 +97,64 @@ final class WorldGather {
 	private static boolean solid(ClientLevel level, BlockPos p) {
 		BlockState s = level.getBlockState(p);
 		return !s.isAir() && s.isCollisionShapeFullBlock(level, p);
+	}
+
+	/** Does `box` cut into a full block (the kind her world has only the outside faces of)? */
+	static boolean inSolid(ClientLevel level, AABB box) {
+		for (BlockPos q : BlockPos.betweenClosed(Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
+			Mth.floor(box.maxX), Mth.floor(box.maxY), Mth.floor(box.maxZ))) {
+			if (solid(level, q)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Is `box` clear of every block's collision? */
+	private static boolean clear(ClientLevel level, AABB box) {
+		for (BlockPos q : BlockPos.betweenClosed(Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
+			Mth.floor(box.maxX), Mth.floor(box.maxY), Mth.floor(box.maxZ))) {
+			for (AABB b : level.getBlockState(q).getCollisionShape(level, q).toAabbs()) {
+				if (b.move(q.getX(), q.getY(), q.getZ()).intersects(box)) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * The nearest place to `feet` with room for her to stand (feet on a block's top, out to 3 blocks
+	 * across and from 2 down to 4 up), preferring up and somewhere with a floor under it; null if
+	 * there's none.
+	 */
+	static Vec3 freeSpot(ClientLevel level, Vec3 feet) {
+		record Spot(Vec3 at, double cost) {}
+		List<Spot> spots = new ArrayList<>();
+		int y0 = Mth.floor(feet.y + 0.5);
+		for (int dy = -2; dy <= 4; dy++) {
+			for (double dx = -3; dx <= 3; dx += 0.5) {
+				for (double dz = -3; dz <= 3; dz += 0.5) {
+					double y = y0 + dy;
+					spots.add(new Spot(new Vec3(feet.x + dx, y, feet.z + dz), Math.hypot(dx, dz) + Math.abs(y - feet.y) * (y < feet.y ? 1.0 : 0.7)));
+				}
+			}
+		}
+		spots.sort(java.util.Comparator.comparingDouble(Spot::cost));
+		Vec3 fallback = null;
+		for (Spot s : spots) {
+			Vec3 p = s.at();
+			if (!clear(level, new AABB(p.x - 0.3, p.y + 0.01, p.z - 0.3, p.x + 0.3, p.y + 1.8, p.z + 0.3))) {
+				continue;
+			}
+			if (!clear(level, new AABB(p.x - 0.29, p.y - 0.05, p.z - 0.29, p.x + 0.29, p.y, p.z + 0.29))) {
+				return p;
+			}
+			if (fallback == null) {
+				fallback = p;
+			}
+		}
+		return fallback;
 	}
 
 	private static boolean poleBlock(BlockState s) {
@@ -177,7 +241,7 @@ final class WorldGather {
 						}
 					}
 					if ((block instanceof LadderBlock || block instanceof VineBlock) && !laddersDone.contains(pos.asLong())) {
-						ladder(level, pos.immutable(), s, fixtures, laddersDone);
+						ladder(level, pos.immutable(), fixtures, laddersDone);
 					}
 					if (s.is(Blocks.HAY_BLOCK) || s.is(Blocks.SLIME_BLOCK)) {
 						fixtures.add(new HostFixture(2, 0, host(x, y, z), host(x + 1, y + 1, z + 1), new float[3], 0));
@@ -224,7 +288,31 @@ final class WorldGather {
 				}
 			}
 		}
-		Faith.setWorld(out.toArray(), fixtures, candidates);
+		// The same as last time (nothing built or broken nearby): hers already. Handing it over again
+		// costs a hitch and drops what she knows of the doors she's opened.
+		float[] tris = out.toArray();
+		String sig = signature(fixtures, candidates);
+		if (!force && java.util.Arrays.equals(tris, lastTris) && sig.equals(lastSig)) {
+			return;
+		}
+		lastTris = tris;
+		lastSig = sig;
+		Faith.setWorld(tris, fixtures, candidates);
+	}
+
+	private static float[] lastTris;
+	private static String lastSig = "";
+
+	private static String signature(List<HostFixture> fixtures, List<Candidate> candidates) {
+		StringBuilder b = new StringBuilder();
+		for (HostFixture f : fixtures) {
+			b.append(f.kind()).append(',').append(f.flags()).append(java.util.Arrays.toString(f.a())).append(java.util.Arrays.toString(f.b()))
+				.append(java.util.Arrays.toString(f.n())).append(f.top()).append(';');
+		}
+		for (Candidate c : candidates) {
+			b.append(java.util.Arrays.toString(c.a())).append(java.util.Arrays.toString(c.b())).append(c.thickness()).append(c.capsule()).append(';');
+		}
+		return b.toString();
 	}
 
 	/** A closed wooden door: its panel, both halves high. */
@@ -241,8 +329,13 @@ final class WorldGather {
 		fixtures.add(new HostFixture(1, 0, lo, hi, new float[] { f.getStepX(), -f.getStepZ(), 0 }, 0));
 	}
 
-	/** Which way a ladder or a (one-sided) vine faces out from its wall, or null. */
-	private static Direction outward(BlockState s) {
+	/**
+	 * Which way a ladder or a (one-sided) vine at `p` faces out from its wall, or null. A vine only
+	 * where it grows on a wall: not hanging free under a tree (its faces stay set with nothing
+	 * behind them), and not on leaves, which she'd climb up into.
+	 */
+	private static Direction outward(ClientLevel level, BlockPos p) {
+		BlockState s = level.getBlockState(p);
 		if (s.getBlock() instanceof LadderBlock) {
 			return s.getValue(LadderBlock.FACING);
 		}
@@ -256,36 +349,55 @@ final class WorldGather {
 					found = d.getOpposite();
 				}
 			}
-			return found;
+			if (found == null) {
+				return null;
+			}
+			BlockPos wall = p.relative(found.getOpposite());
+			return solid(level, wall) && !(level.getBlockState(wall).getBlock() instanceof LeavesBlock) ? found : null;
 		}
 		return null;
 	}
 
-	/** A run of ladder (or vine) blocks up a wall, from its bottom. */
-	private static void ladder(ClientLevel level, BlockPos start, BlockState s, List<HostFixture> fixtures, Set<Long> done) {
-		Direction out = outward(s);
+	private static boolean clear(ClientLevel level, BlockPos p) {
+		return level.getBlockState(p).getCollisionShape(level, p).isEmpty();
+	}
+
+	/**
+	 * A run of ladder (or vine) blocks up a wall, from its bottom. On the top step her head is most
+	 * of a block above the run, so where something hangs over it (a tree's leaves above a vine) the
+	 * ladder stops a block lower, with no way out over the top: climbing on would put her inside it.
+	 */
+	private static void ladder(ClientLevel level, BlockPos start, List<HostFixture> fixtures, Set<Long> done) {
+		Direction out = outward(level, start);
 		if (out == null) {
 			done.add(start.asLong());
 			return;
 		}
 		BlockPos bottom = start;
-		while (outward(level.getBlockState(bottom.below())) == out) {
+		while (outward(level, bottom.below()) == out) {
 			bottom = bottom.below();
 		}
 		BlockPos top = start;
-		while (outward(level.getBlockState(top.above())) == out) {
+		while (outward(level, top.above()) == out) {
 			top = top.above();
 		}
 		for (BlockPos p = bottom; p.getY() <= top.getY(); p = p.above()) {
 			done.add(p.asLong());
 		}
+		int topY = top.getY() + 1;
+		boolean roomAbove = clear(level, top.above());
+		if (!roomAbove) {
+			topY = top.getY();
+		}
+		if (topY - bottom.getY() < LADDER_MIN) {
+			return;
+		}
 		// Climbing out over the top: the wall ends there, with room on it.
 		BlockPos behind = top.relative(out.getOpposite());
-		boolean exit = solid(level, behind) && level.getBlockState(behind.above()).getCollisionShape(level, behind.above()).isEmpty()
-			&& level.getBlockState(behind.above(2)).getCollisionShape(level, behind.above(2)).isEmpty();
+		boolean exit = roomAbove && solid(level, behind) && clear(level, behind.above()) && clear(level, behind.above(2));
 		double fx = bottom.getX() + 0.5 - out.getStepX() * 0.5, fz = bottom.getZ() + 0.5 - out.getStepZ() * 0.5;
 		fixtures.add(new HostFixture(0, exit ? 2 : 0, host(fx, bottom.getY(), fz), new float[3], new float[] { out.getStepX(), -out.getStepZ(), 0 },
-			top.getY() + 1));
+			topY));
 	}
 
 	/** A straight run of high bars or fence along x or z, as a swing pole candidate. */

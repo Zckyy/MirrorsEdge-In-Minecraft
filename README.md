@@ -75,7 +75,7 @@ On top of the original mod:
 | **Smooth shading under shaders** | Iris was flattening her normals to one per triangle, so her skin looked faceted, like stone. Fixed. |
 | **Her normal and specular maps** | Her skin, glove and clothes keep their detail (muscle, folds, creases) under LabPBR shader packs, read from your copy of the game and converted at startup. |
 | **Crash fix** | Changing resource or shader packs mid-game no longer crashes once her maps are loaded. |
-| **Melee hits mobs** | Her punches, jump kicks, slide kicks and wallrun kicks hurt and knock back Minecraft mobs, with Mirror's Edge's own target choice, hit tests and damage (scaled so a mob takes as many blows as a cop would). Kills count as yours: loot, XP, advancements. |
+| **Melee hits mobs** | Her punches, jump kicks, slide kicks and wallrun kicks hurt and knock back Minecraft mobs, with Mirror's Edge's own target choice, hit tests and damage (scaled so a mob takes as many blows as a cop would). Reach is measured to the mob's side rather than its middle, with a little extra leeway, so big and small mobs get hit too, and a blow lands on whichever mob it reaches. Kills count as yours: loot, XP, advancements. |
 | **Footstep and hand surfaces** | Her steps sound like what she's on: concrete, wood, metal, grating, airduct (copper grates), ladders, pipes (chains, rods), chain-link (bars), glass, cardboard (wool, hay) and water, from her feet on the floor or the wall she's running along and her hands on what she holds. |
 | **Controls screen** | A "Faith Runner controls" button on the pause menu: every key as it's bound now, tips for her harder moves, and the blocks she uses, with a shortcut to Minecraft's key bindings. |
 | **Distant Horizons** | `-PwithDH` adds Distant Horizons to the dev and test runs (alongside `-PwithIris`). |
@@ -114,7 +114,7 @@ with her own normal and specular maps (bottom row):
 
 | Build this | She does this |
 | --- | --- |
-| **Ladder** or **vines** up a wall | Climbs it; steps off the top onto the roof if there's room. |
+| **Ladder** or **vines** up a wall | Climbs it; steps off the top onto the roof if there's room. Vines hanging free or growing on leaves aren't ladders, and she only climbs as high as there's headroom. |
 | **Upright chains / end rods / lightning rods**, 3+ high, against a wall | Climbs it as a drainpipe, and over the top onto the roof. |
 | **Horizontal chains** in a line, each level with the last or one lower, 6+ long, sloping 4–30° (one step down every 2 to 14 chains), with room to hang under it and a floor 1–3.5 m below its top end | A zipline: jump up to grab it and ride it down. |
 | **Fences or walls** in a straight line, 3+ long, along the top of a one-block-wide wall (nothing beside them at their level or the block below) | A balance beam: she walks it with her balance model. Look or lean off it and she loses her balance. |
@@ -220,7 +220,7 @@ through each kind of block, failing on the first thing that doesn't work. Screen
 | `Blocks` | Ladders, doors, stairs, slabs, hay, swing bars, a held item, punches, her shadow |
 | `HandOff` | A dive into a pool and a swim out, a one-deep ditch (no hand-off), lava, a boat, an elytra glide off a tower |
 | `CloseUp` | Her body large in frame at 1600x900 (punch at a wall, door kick, vault, a row of materials), for judging shading |
-| `Fixtures` | Drainpipe, zipline, fence beam, wall beam, railing vault |
+| `Fixtures` | Drainpipe, zipline, fence beam, wall beam, railing vault, hanging vines (not climbed), getting out of leaves |
 | `Showcase` | Footage only (runs only when named): the course in the gallery, logging when each move starts so a recording can be cut |
 
 ```sh
