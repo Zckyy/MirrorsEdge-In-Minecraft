@@ -116,6 +116,22 @@ public class FaithMeleeTest implements FabricClientGameTest {
 				}
 			}
 			context.getInput().releaseKey(o -> o.keyUp);
+
+			// Left click is her attack while she's on: Minecraft's mining is off (the block stays),
+			// and back once she's off (it breaks). Dirt: a fist breaks it in under a second in survival.
+			reset(context, world, 99);
+			world.getServer().runCommand("kill @e[type=minecraft:husk]");
+			world.getServer().runCommand("setblock 0 -59 2 minecraft:dirt");
+			context.waitTicks(5);
+			context.runOnClient(mc -> System.out.println("FAITH-MELEE aiming at " + mc.hitResult + " mode " + mc.gameMode.getPlayerMode()));
+			context.getInput().holdKeyFor(o -> o.keyAttack, 40);
+			String on = world.getServer().computeOnServer(server -> server.overworld().getBlockState(new net.minecraft.core.BlockPos(0, -59, 2)).getBlock().getDescriptionId());
+			System.out.println("FAITH-MELEE mining with Faith on: " + on);
+			context.runOnClient(FaithTesting::toggle);
+			context.waitTicks(5);
+			context.getInput().holdKeyFor(o -> o.keyAttack, 40);
+			String off = world.getServer().computeOnServer(server -> server.overworld().getBlockState(new net.minecraft.core.BlockPos(0, -59, 2)).getBlock().getDescriptionId());
+			System.out.println("FAITH-MELEE mining with Faith off: " + off);
 		}
 	}
 }

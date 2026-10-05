@@ -178,9 +178,9 @@ The look in the gallery:
 | **Space** | Jump, vault, wallrun, wallclimb, grab, pull up, kick off a wall |
 | **Shift** | Crouch, slide (at a run), coil (in the air), roll (just before landing), let go |
 | **Z** | 180° turn (on the ground, in the air, on a wall, ledge or pole; on a wallrun, look out from the wall to jump across to another) |
-| **R** | Melee: punches, jump kick, slide kick, wallrun kick; barges and kicks doors |
+| **Left click** | Melee: punches, jump kick, slide kick, wallrun kick; barges and kicks doors. While she's on it replaces Minecraft's attack and mining (switch her off with F8 to break blocks) |
 
-F8, Z and R can be rebound in Controls. WASD, Space and Shift are Minecraft's own bindings.
+F8, Z and the melee click can be rebound in Controls. WASD, Space and Shift are Minecraft's own bindings.
 In game, **Faith Runner controls** on the pause menu lists them all, as they're bound now.
 
 Tips:

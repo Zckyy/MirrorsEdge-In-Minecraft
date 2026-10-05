@@ -20,7 +20,8 @@ public class FaithRunner implements ClientModInitializer {
 	// Minecraft 26's keys are SDL scancodes.
 	static final KeyMapping TOGGLE = new KeyMapping("key.faithrunner.toggle", InputConstants.Type.KEYBOARD, InputConstants.KEY_F8, CATEGORY);
 	static final KeyMapping TURN = new KeyMapping("key.faithrunner.turn", InputConstants.Type.KEYBOARD, InputConstants.KEY_Z, CATEGORY);
-	static final KeyMapping MELEE = new KeyMapping("key.faithrunner.melee", InputConstants.Type.KEYBOARD, InputConstants.KEY_R, CATEGORY);
+	// Left click, beside Minecraft's attack (whose own is off while she has the player: MinecraftAttackMixin).
+	static final KeyMapping MELEE = new KeyMapping("key.faithrunner.melee", InputConstants.Type.MOUSE, InputConstants.MOUSE_BUTTON_LEFT, CATEGORY);
 
 	@Override
 	public void onInitializeClient() {

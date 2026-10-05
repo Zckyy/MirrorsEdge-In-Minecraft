@@ -67,7 +67,7 @@ public final class FaithControlsScreen extends Screen {
 		row(key(o.keyJump), "Jump, vault, wallrun, wallclimb, grab a ledge, pull up, kick off a wall");
 		row(key(o.keyShift), "Crouch; slide at a run; coil in the air; roll just before landing; let go of a ledge or pole");
 		row(key(FaithRunner.TURN), "180° turn (on the ground, in the air, on a wall, ledge or pole). On a wallrun: look out from the wall to jump across to another");
-		row(key(FaithRunner.MELEE), "Attack: punches, jump kick, slide kick, wallrun kick. Barges or kicks a door open. Hurts mobs in singleplayer");
+		row(key(FaithRunner.MELEE), "Attack: punches, jump kick, slide kick, wallrun kick. Barges or kicks a door open. Hurts mobs in singleplayer. Minecraft's own attack and mining are off while she's on: " + key(FaithRunner.TOGGLE).getString() + " to break blocks");
 
 		heading("Tips");
 		row(Component.literal("Sprint"), "Speed builds up the longer you run (up to 7.2 m/s after 7 s). Whipping the view round sheds it");
