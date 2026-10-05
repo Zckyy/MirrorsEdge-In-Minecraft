@@ -32,11 +32,16 @@ final class Native {
 		F_CAM_FORWARD = 48, F_CAM_UP = 60, F_CAM_RIGHT = 72, F_FOV = 84, F_LAND_IMPACT = 88, F_EVENTS = 96, F_ON_GROUND = 104,
 		F_ANIMATED = 105, F_LOW = 107, F_SPEED_BLUR = 108, F_REACTION = 112, F_GAME_SPEED = 116;
 
+	/** FaithFrame.events: an attack landed (faith_melee_hits). */
+	static final long EV_MELEE_HIT = 1L << 19;
+
 	final MethodHandle create, destroy, animated, setWorld, teleport, step, stateName, lastError, setAutoStepUp, soundPause;
-	final MethodHandle setHostFixtures, setCandidates, doorsOpened, setAutoStepUpMax, bodyBone;
+	final MethodHandle setHostFixtures, setCandidates, doorsOpened, setAutoStepUpMax, bodyBone, setTargets, meleeHits, setSurfaces;
 
 	/** sizeof(FaithHostFixture), FaithFixtureCandidate, FaithXform (faith.h). */
 	static final long HOST_FIXTURE = 48, CANDIDATE = 32, XFORM = 32;
+	/** sizeof(FaithTarget), FaithHit (faith.h). */
+	static final long TARGET = 40, HIT = 24;
 
 	final Path path;
 
@@ -59,6 +64,9 @@ final class Native {
 		doorsOpened = fn(linker, lib, "faith_doors_opened", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 		setAutoStepUpMax = fn(linker, lib, "faith_set_auto_step_up_max", FunctionDescriptor.ofVoid(ADDRESS, JAVA_FLOAT));
 		bodyBone = fn(linker, lib, "faith_body_bone", FunctionDescriptor.of(JAVA_BYTE, ADDRESS, ADDRESS, ADDRESS));
+		setTargets = fn(linker, lib, "faith_set_targets", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT));
+		setSurfaces = fn(linker, lib, "faith_set_surfaces", FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT));
+		meleeHits = fn(linker, lib, "faith_melee_hits", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 	}
 
 	private static MethodHandle fn(Linker linker, SymbolLookup lib, String name, FunctionDescriptor d) {

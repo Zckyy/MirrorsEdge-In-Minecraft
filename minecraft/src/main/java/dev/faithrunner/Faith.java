@@ -63,6 +63,8 @@ public final class Faith {
 	private static float lookYaw, lookPitch;
 	/** Where we last put the player: anything else moving it (teleport, respawn) re-places her. */
 	private static Vec3 lastSet;
+	/** The surfaces last given (feet, hands); -1 to give them again. */
+	private static int[] surfaces = {-1, -1};
 	private static boolean wasJump, wasCrouch, wasTurn, wasMelee, soundPaused, waitingForGround;
 
 	private Faith() {}
@@ -409,6 +411,8 @@ public final class Faith {
 		wasTurn = turn;
 		wasMelee = melee;
 		lookYaw = lookPitch = 0;
+		FaithMelee.setTargets(mc, p);
+		setSurfaces(p);
 		try {
 			lib.step.invokeExact(handle, dt, input, frame);
 		} catch (Throwable t) {
@@ -418,6 +422,9 @@ public final class Faith {
 		}
 		haveFrame = true;
 		openDoors(mc);
+		if ((Native.events(frame) & Native.EV_MELEE_HIT) != 0) {
+			FaithMelee.applyHits(mc);
+		}
 		// The player goes where she is, looking where she looks.
 		Vec3 feet = mc(Native.F_FEET);
 		p.setPos(feet.x, feet.y, feet.z);
@@ -437,6 +444,20 @@ public final class Faith {
 		p.setOnGround(frame.get(JAVA_BYTE, Native.F_ON_GROUND) != 0);
 		p.fallDistance = 0;
 		lastSet = p.position();
+	}
+
+	/** What her feet and hands touch (for her step sounds), when it changes. */
+	private static void setSurfaces(LocalPlayer p) {
+		int[] s = FaithSurfaces.of(p, stateName());
+		if (s[0] == surfaces[0] && s[1] == surfaces[1]) {
+			return;
+		}
+		surfaces = s;
+		try {
+			lib.setSurfaces.invokeExact(handle, s[0], s[1]);
+		} catch (Throwable t) {
+			FaithRunner.LOG.error("faith_set_surfaces", t);
+		}
 	}
 
 	/** Host-frame point at `off` in the frame, in Minecraft's frame. */

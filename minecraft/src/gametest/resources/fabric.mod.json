@@ -10,7 +10,9 @@
 			"dev.faithrunner.test.FaithHandOffTest",
 			"dev.faithrunner.test.FaithCloseUpTest",
 			"dev.faithrunner.test.FaithFixturesTest",
-			"dev.faithrunner.test.FaithShowcaseTest"
+			"dev.faithrunner.test.FaithShowcaseTest",
+			"dev.faithrunner.test.FaithMeleeTest",
+			"dev.faithrunner.test.FaithSurfacesTest"
 		]
 	},
 	"depends": {

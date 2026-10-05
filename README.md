@@ -75,6 +75,9 @@ On top of the original mod:
 | **Smooth shading under shaders** | Iris was flattening her normals to one per triangle, so her skin looked faceted, like stone. Fixed. |
 | **Her normal and specular maps** | Her skin, glove and clothes keep their detail (muscle, folds, creases) under LabPBR shader packs, read from your copy of the game and converted at startup. |
 | **Crash fix** | Changing resource or shader packs mid-game no longer crashes once her maps are loaded. |
+| **Melee hits mobs** | Her punches, jump kicks, slide kicks and wallrun kicks hurt and knock back Minecraft mobs, with Mirror's Edge's own target choice, hit tests and damage (scaled so a mob takes as many blows as a cop would). Kills count as yours: loot, XP, advancements. |
+| **Footstep and hand surfaces** | Her steps sound like what she's on: concrete, wood, metal, grating, airduct (copper grates), ladders, pipes (chains, rods), chain-link (bars), glass, cardboard (wool, hay) and water, from her feet on the floor or the wall she's running along and her hands on what she holds. |
+| **Distant Horizons** | `-PwithDH` adds Distant Horizons to the dev and test runs (alongside `-PwithIris`). |
 | **More tests** | Client game tests for each of the above, a close-up suite for judging her body under shaders, and options to pick suites, shader settings and a resource pack. `./gradlew deploy` works again. |
 
 ## Gallery
@@ -252,8 +255,7 @@ Edge folder; without it they pass without checking anything.
 
 - **Singleplayer only.** The server-side relaxations apply to the singleplayer owner.
 - **Reaction Time** (slow motion) isn't there.
-- **Her melee doesn't hurt Minecraft mobs yet**: the engine works out the hits, but they aren't
-  applied. Fight with Minecraft's left click.
+- **Her melee only hurts mobs in singleplayer** (the damage is applied on the integrated server).
 - **No fall damage** while she's in control. Her hard landings stand in for it.
 - **Chains sit in the middle of their block**, so on a drainpipe she hangs half a block further
   from the wall than in the game, and a zipline looks like a staircase of chains.

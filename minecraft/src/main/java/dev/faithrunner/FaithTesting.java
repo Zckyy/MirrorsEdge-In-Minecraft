@@ -71,4 +71,10 @@ public final class FaithTesting {
 	public static String state() {
 		return Faith.stateName() + (Faith.loadError() != null ? " (load error: " + Faith.loadError() + ")" : "");
 	}
+
+	/** What her feet and hands touch now, as given to her step sounds: "feet/hands". */
+	public static String surfaces(Minecraft mc) {
+		int[] s = FaithSurfaces.of(mc.player, Faith.stateName());
+		return s[0] + "/" + s[1];
+	}
 }
